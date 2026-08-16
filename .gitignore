@@ -1,0 +1,10 @@
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# quiz-structure-mapper run artifacts (screenshots, traces) - schema.json itself IS tracked
+/tests/quiz-structure/artifacts/

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp",
+        "--caps=network,devtools,testing",
+        "--allowed-origins=stage.allright.com",
+        "--output-dir=tests/quiz-structure/artifacts"
+      ]
+    }
+  }
+}
