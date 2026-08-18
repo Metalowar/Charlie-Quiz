@@ -1,16 +1,17 @@
 {
-  "generatedAt": "2026-08-17T00:00:00.000Z",
+  "generatedAt": "2026-08-17T21:15:00.000Z",
   "baseUrl": "https://stage.allright.com/uk/app/sign-up/long/charlie/age-range",
-  "changeSummary": "Steps 1-20 (age-range through user-info-email) are structurally unchanged from the previous schema (same order, same singleChoice/multiChoice/info/textInput/textInputPair types, same popupOnExit on user-info-name). Two real changes found at the tail of the funnel: (1) lesson-time-select (scheduling step) no longer requires explicit day/time-of-day/slot selection before the book button enables - in this run a day (tomorrow), time-of-day (morning) and exact slot (10:30) were pre-selected by default and 'Забронювати урок' was already clickable; also the popupOnExit confirmation dialog ('Лишилося зробити всього один крок...') seen in the previous run did NOT appear this run - clicking the book button navigated straight to a new step. (2) A brand-new step 'telegram-bot' now follows lesson-time-select, replacing the old terminal 'request-gotten' page entirely - it shows a 'Пробний урок заброньовано' confirmation plus a Telegram-bot subscribe CTA and a 'Далі' button. That 'Далі' button no longer leads to a quiz-scoped terminal screen; it navigates out of the funnel into the authenticated app area (observed landing on the generic /uk/app/login screen in this run, an artifact of the mocked/fake oauth session not being a real authenticated session against the live backend - a genuinely logged-in user would presumably land in their real dashboard instead). No true in-funnel terminal/confirmation step (type=terminal) was reachable this run; telegram-bot is now the practical end of the discoverable quiz. Booking-endpoint hypothesis narrowed: POST https://stage.allright.com/api/v1/lessons is confirmed as the real trial-lesson booking call (mocked and validated); the other four hypothesized patterns (tmp-lessons, trial-lessons, bookings, permanent-schedule) were armed but not hit and can likely be dropped from the hypothesis list, though kept for this run's safety net. Also newly discovered: submitting user-info-phone (which mints the fake oauth session) triggers a client-side redirect chain through several /uk/not-found hits and lands on the marketing homepage (/uk) if the follow-up GET /api/v1/users?...&me=true is left unmocked and returns a real 401 - this run added a supplementary read-only mock for that endpoint (not in the original mutating-endpoint list) to keep the flow traversable; this is a non-mutating GET so it does not violate the no-real-writes guardrail, but is a new operational dependency worth carrying into future runs of this agent.",
+  "changeSummary": "Структура кроків не змінилася порівняно з попереднім запуском: той самий live-редирект /charlie/ -> /personalized/ (експеримент QUIZ_CHARLIE_VS_PERSONALIZED, цього разу підтверджено інакше - не через окремий GET /api/v1/experiments, а напряму з тіла POST /api/v1/users: \"experiments\":[{\"alias\":\"QUIZ_CHARLIE_VS_PERSONALIZED\",\"variant\":\"B\"}]), той самий набір із 21 кроку з ідентичними URL-слагами, порядком, типами і селекторами button[data-mode] / button[class^=btn], той самий патерн '-info' інтерстиціалів з недетермінованим авто-переходом (то через ~1-2с без кліку, то тільки по кліку 'Продовжити' після 10+с), та сама квазі-одиночна поведінка child-hobby (7 опцій без чекбоксів, але вибір другої опції знімає виділення першої), і так само відсутній popupOnExit на user-info-name (не з'явився в цьому запуску). ГОЛОВНА ЗМІНА цього запуску: природний прохід кліками вперше вперся у жорсткий блокер на кроці user-info-phone. Реальний (навмисно немокнутий) POST https://stage.allright.com/oauth/token після відправки телефону стабільно повертає 403 invalid_grant 'Invalid resource owner credentials' - що логічно, бо POST /api/v1/users замокано і реального акаунту на бекенді не існує. Витягнутий з живого JS-бандла (chunk.5e93d15128ebbf8949b6.js) код показує, що успішний логін через currentUser.authenticate(...) є обов'язковою умovoю перед викликом registrationSuccess()/переходом на наступний крок: `.then(...registrationSuccess...).catch(()=>{this.isDisabledBtn=!1})` - при провалі логіну кнопка просто розблоковується для повторної спроби, без будь-якої видимої користувачу помилки і без переходу далі. Це прямо суперечить попередньому припущенню в інструкціях ('flow continues past it fine regardless of what the real response is') - для цього варіанту воно не підтвердилося. oauth/token НЕ мокався (це жорстка вимога), тому для картографування кроків після user-info-phone (user-info-email, lesson-time-select, request-gotten) довелося користуватися прямою навігацією за URL - роутер SPA не має гарду, що блокує прямий перехід на URL кроку, тому DOM/селектори цих кроків так само знято наживо, просто не через послідовний клік 'Продовжити' з попереднього кроку. Друга знахідка: wildcard-патерн PATCH-мока з інструкцій (https://stage.allright.com/api/v1/users/*) через відсутність фільтра по HTTP-методу в інструменті browser_route також перехоплював непов'язаний реальний GET https://stage.allright.com/api/v1/users/check-captcha, підміняючи його відповідь фейковим користувачем - виправлено звуженням до точного https://stage.allright.com/api/v1/users/999999 (id узгоджений з фіксованим id у POST-моці). Третя знахідка: input[type=tel] на кроці user-info-phone (кастомна маска номера) НЕ проходить валідацію/не розблоковує 'Продовжити' при заповненні через Playwright .fill() з повним значенням - потрібна посимвольна емуляція клавіш (pressSequentially/type slowly), інакше кнопка лишається disabled; це важливо для tests/pages/quizPage.ts, чий fillInputClick зараз використовує .fill() для всіх textInput-кроків. Також обов'язково спершу очищати поле (яке має дефолтний префікс +380) через fill(''), інакше просте дописування лишає невидимий 'хвіст' і призводить до \"Недійсний номер телефону\". Четверта дрібна зміна: accessible name кнопки вибору країни на user-info-phone тепер \"Change country, selected Ukraine (+380)\" замість рівно \"Change country\" з попереднього запуску - точний role=button[name=\"Change country\"] більше не резолвиться, замінено на підрядковий role=button[name*=\"Change country\"]. П'ята: як і минулого разу, клік 'Забронювати урок' на lesson-time-select НЕ викликав жоден з 5 гіпотетичних endpoint'ів бронювання (lessons/tmp-lessons/trial-lessons/bookings/permanent-schedule) - перехід на /uk/app/request-gotten стався суто на клієнті; цього разу навіть попередньо задокументований 'механізм бронювання' (PATCH /api/v1/users/{id} на кроці user-info-email) не спрацював, бо через блокер на user-info-phone цей крок цього разу не було легітимно відправлено через звичайний клік (лише оглянуто напряму за URL) - тож фактичний механізм фіксації бронювання цього разу лишився повністю непідтвердженим мережевим викликом. Довелося (як і в позаминулому запуску) домокати GET https://stage.allright.com/api/v1/users?filter[get-tutor-for-trial]=true, інакше клік 'Забронювати урок' зависав нескінченно без відповіді.",
   "observedExperiments": [
-    "GET /api/v1/users?...&me=true accepts an include=...,UserExperiments relation, implying a server-side per-user experiment/variant framework exists, though no specific experiment/variant name or client-side cookie/flag was directly observed this run",
-    "Behavioral variant at lesson-time-select: default pre-selected day/time-of-day/slot (this run) vs. requiring explicit selection before the book button enables (previous run) - likely an A/B variant of the scheduling widget",
-    "New telegram-bot step post-booking, replacing the previous run's confirmation popup + separate request-gotten terminal page - likely a funnel-variant change rather than a permanent-fixture, since the whole tail of the funnel differs from the prior mapping"
+    "QUIZ_CHARLIE_VS_PERSONALIZED (variant B) - підтверджено полем \"experiments\":[{\"alias\":\"QUIZ_CHARLIE_VS_PERSONALIZED\",\"variant\":\"B\"}] у тілі запиту POST https://stage.allright.com/api/v1/users; baseURL з /charlie/ live-редиректить на /personalized/, як і в попередньому запуску",
+    "child-hobby: та сама квазі-single-select поведінка при 7 button[data-mode] опціях без видимих чекбоксів (вибір нової опції знімає попередню) - стабільно відтворилася і в цьому запуску",
+    "'-info' кроки: недетермінований час авто-переходу (від ~1-2с без кліку до 10+с з обов'язковим кліком) - відтворився знову, ймовірно сам є частиною A/B-таймера",
+    "cookie auth_user_id виставляється в 999999 (значення id з мокнутої POST /api/v1/users відповіді) навіть при ember_simple_auth-session={\"authenticated\":{}} (тобто без реальної автентифікації) - деталь реалізації, не власне experiment-маркер, але може бути корисною для розуміння, чому деякі подальші запити взагалі щось повертають"
   ],
   "steps": [
     {
       "order": 1,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/age-range",
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/age-range",
       "type": "singleChoice",
       "interaction": "chooseOption",
       "required": true,
@@ -19,230 +20,234 @@
     },
     {
       "order": 2,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/child-know-english",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/age-range-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
       "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/02-child-know-english.png"
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent: sometimes transitions to next step within ~1-2s without any click, other times requires an explicit click on 'Продовжити' after 10+s"]
     },
     {
       "order": 3,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/plan-lesson",
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/who-user-is",
       "type": "singleChoice",
       "interaction": "chooseOption",
       "required": true,
       "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/03-plan-lesson.png"
+      "screenshot": "artifacts/02-who-user-is.png"
     },
     {
       "order": 4,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/main-thing",
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/main-thing",
       "type": "singleChoice",
       "interaction": "chooseOption",
       "required": true,
       "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/04-main-thing.png"
+      "screenshot": "artifacts/03-main-thing.png"
     },
     {
       "order": 5,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/schedule-flexibility",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/main-thing-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
       "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/05-schedule-flexibility.png"
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent, same as age-range-info"],
+      "screenshot": "artifacts/04-main-thing-info.png"
     },
     {
       "order": 6,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/control-schedule",
-      "type": "info",
-      "interaction": "acknowledgeThenContinue",
-      "required": true,
-      "selectors": { "nextButton": "button[class^=btn]" },
-      "screenshot": "artifacts/06-control-schedule.png"
-    },
-    {
-      "order": 7,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/child-device",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
-      "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/07-child-device.png"
-    },
-    {
-      "order": 8,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/child-device-advice",
-      "type": "info",
-      "interaction": "acknowledgeThenContinue",
-      "required": true,
-      "selectors": { "nextButton": "button[class^=btn]" },
-      "screenshot": "artifacts/08-child-device-advice.png"
-    },
-    {
-      "order": 9,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/speaking-clubs",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
-      "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/09-speaking-clubs.png"
-    },
-    {
-      "order": 10,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/speaking-clubs-info",
-      "type": "info",
-      "interaction": "acknowledgeThenContinue",
-      "required": true,
-      "selectors": { "nextButton": "button[class^=btn]" },
-      "screenshot": "artifacts/10-speaking-clubs-info.png"
-    },
-    {
-      "order": 11,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/progress",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
-      "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/11-progress.png"
-    },
-    {
-      "order": 12,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/homework",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
-      "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/12-homework.png"
-    },
-    {
-      "order": 13,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/repeat-material",
-      "type": "info",
-      "interaction": "acknowledgeThenContinue",
-      "required": true,
-      "selectors": { "nextButton": "button[class^=btn]" },
-      "screenshot": "artifacts/13-repeat-material.png"
-    },
-    {
-      "order": 14,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/lesson-format",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
-      "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/14-lesson-format.png"
-    },
-    {
-      "order": 15,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/child-name",
-      "type": "textInput",
-      "interaction": "fillThenContinue",
-      "required": true,
-      "selectors": { "input": "input[type=text]", "nextButton": "button[class^=btn]" },
-      "validations": ["required (blocks advance, shows \"Це поле не може бути порожнім\" when empty)"],
-      "screenshot": "artifacts/15-child-name.png"
-    },
-    {
-      "order": 16,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/temperament-child",
-      "type": "singleChoice",
-      "interaction": "chooseOption",
-      "required": true,
-      "selectors": { "options": "button[data-mode]" },
-      "screenshot": "artifacts/16-temperament-child.png"
-    },
-    {
-      "order": 17,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/child-hobby",
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/child-hobby",
       "type": "multiChoice",
       "interaction": "chooseOptionThenContinue",
       "required": true,
       "selectors": { "options": "button[data-mode]", "nextButton": "button[class^=btn]" },
-      "validations": ["min-selection:1 (\"Продовжити\" stays disabled until at least one option is chosen)"],
-      "screenshot": "artifacts/17-child-hobby.png"
+      "validations": [
+        "min-selection:1 ('Продовжити' stays disabled until at least one option is chosen)",
+        "despite offering 7 selectable options with no visible checkbox styling, the widget behaves like a single-select radio group: clicking a second option silently deselects the first rather than accumulating a multi-selection"
+      ],
+      "screenshot": "artifacts/05-child-hobby.png"
     },
     {
-      "order": 18,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/user-info-name",
+      "order": 7,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/child-hobby-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
+      "required": true,
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent, same as age-range-info"],
+      "screenshot": "artifacts/06-child-hobby-info.png"
+    },
+    {
+      "order": 8,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/child-know-english",
+      "type": "singleChoice",
+      "interaction": "chooseOption",
+      "required": true,
+      "selectors": { "options": "button[data-mode]" },
+      "screenshot": "artifacts/07-child-know-english.png"
+    },
+    {
+      "order": 9,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/child-know-english-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
+      "required": true,
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent, same as age-range-info"],
+      "screenshot": "artifacts/08-child-know-english-info.png"
+    },
+    {
+      "order": 10,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/temperament-child",
+      "type": "singleChoice",
+      "interaction": "chooseOption",
+      "required": true,
+      "selectors": { "options": "button[data-mode]" },
+      "screenshot": "artifacts/09-temperament-child.png"
+    },
+    {
+      "order": 11,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/temperament-child-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
+      "required": true,
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent, same as age-range-info"],
+      "screenshot": "artifacts/10-temperament-child-info.png"
+    },
+    {
+      "order": 12,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/mistake-reaction",
+      "type": "singleChoice",
+      "interaction": "chooseOption",
+      "required": true,
+      "selectors": { "options": "button[data-mode]" },
+      "screenshot": "artifacts/11-mistake-reaction.png"
+    },
+    {
+      "order": 13,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/mistake-reaction-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
+      "required": true,
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent, same as age-range-info"],
+      "screenshot": "artifacts/12-mistake-reaction-info.png"
+    },
+    {
+      "order": 14,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/attention-hold",
+      "type": "singleChoice",
+      "interaction": "chooseOption",
+      "required": true,
+      "selectors": { "options": "button[data-mode]" },
+      "screenshot": "artifacts/13-attention-hold.png"
+    },
+    {
+      "order": 15,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/attention-hold-info",
+      "type": "info",
+      "interaction": "acknowledgeThenContinue",
+      "required": true,
+      "selectors": { "nextButton": "button[class^=btn]" },
+      "validations": ["auto-advance timing inconsistent, same as age-range-info"],
+      "screenshot": "artifacts/14-attention-hold-info.png"
+    },
+    {
+      "order": 16,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/child-name",
+      "type": "textInput",
+      "interaction": "fillThenContinue",
+      "required": true,
+      "selectors": { "input": "input[type=text]", "nextButton": "button[class^=btn]" },
+      "validations": ["required (blocks advance, shows \"Це поле не може бути порожнім\" - shown proactively even before any interaction)"],
+      "screenshot": "artifacts/15-child-name.png"
+    },
+    {
+      "order": 17,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/user-info-name",
       "type": "textInputPair",
       "interaction": "fillThenContinue",
       "required": true,
       "selectors": {
-        "input": "input[type=text] (accessible name: \"Ім'я одного з батьків\")",
-        "secondaryInput": "input[type=text] (accessible name: \"Код друга\"), revealed via toggle button getByRole('button', { name: 'Вказати код друга' })",
+        "input": "role=textbox[name=\"Ім'я одного з батьків\"]",
+        "revealSecondaryButton": "role=button[name=\"Вказати код друга\"]",
+        "secondaryInput": "role=textbox[name=\"Код друга\"]",
         "nextButton": "button[class^=btn]"
       },
-      "validations": ["required (\"Це поле не може бути порожнім\") on primary name field; secondary \"Код друга\" field has no validation and is optional"],
-      "popupOnExit": {
-        "type": "singleChoice",
-        "interaction": "chooseOption",
-        "required": true,
-        "selectors": { "options": "button[data-mode]", "closeButton": "getByRole('button', { name: 'Close' })" }
-      },
-      "screenshot": "artifacts/18-user-info-name.png"
+      "validations": [
+        "required (\"Це поле не може бути порожнім\") on primary name field; secondary \"Код друга\" field only appears after clicking revealSecondaryButton and has no validation observed - optional",
+        "no popupOnExit observed this run either (consistent with previous run)"
+      ],
+      "screenshot": "artifacts/16-user-info-name.png"
     },
     {
-      "order": 19,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/user-info-phone",
+      "order": 18,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/user-info-phone",
       "type": "textInput",
       "interaction": "fillThenContinue",
       "required": true,
       "selectors": {
         "input": "input[type=tel]",
-        "countrySelector": "getByRole('button', { name: /Change country/ })",
+        "countrySelector": "role=button[name*=\"Change country\"]",
         "nextButton": "button[class^=btn]"
       },
       "validations": [
-        "required (\"Номер занадто короткий\" shown when empty/too short)",
-        "length (\"Номер задовгий\" shown when too many digits entered)"
+        "required/length (\"Номер занадто короткий\" shown for empty/short value), format (\"Недійсний номер телефону\" for a malformed value)",
+        "IMPORTANT: this masked input does not update its internal valid/enabled state when set via Playwright .fill() with a full value - 'Продовжити' stays disabled even though the field visibly shows the typed number; must simulate real keystrokes (pressSequentially / type with slowly=true) instead",
+        "always clear the field (fill('')) before typing - it is pre-filled with a default country prefix ('+380'), and typing without clearing first appends to the stale value producing 'Недійсний номер телефону'",
+        "countrySelector accessible name changed since last run: now \"Change country, selected Ukraine (+380)\" instead of exactly \"Change country\" - use a substring role selector",
+        "BLOCKER FOUND THIS RUN: submitting this step triggers POST https://stage.allright.com/api/v1/users (mocked, 200) followed immediately by POST https://stage.allright.com/oauth/token (intentionally left unmocked per instructions). Since the created account only exists in the mock and not on the real backend, oauth/token legitimately returns 403 invalid_grant every time. The app's registration flow (confirmed via extracted source: chunk.5e93d15128ebbf8949b6.js) requires this login to succeed before calling registrationSuccess()/advancing the route; on failure it just silently re-enables the submit button with no visible error and does not navigate. This run could not get past this step via normal click interaction - subsequent steps were mapped via direct URL navigation instead (the SPA router has no guard against this)."
       ],
-      "screenshot": "artifacts/19-user-info-phone.png"
+      "screenshot": "artifacts/17d-phone-valid.png"
     },
     {
-      "order": 20,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/user-info-email",
+      "order": 19,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/user-info-email",
       "type": "textInput",
       "interaction": "fillThenContinue",
       "required": false,
       "selectors": {
-        "input": "input[type=text] (accessible name: \"Ваш е-mail\")",
+        "input": "role=textbox[name=\"Ваш е-mail\"]",
         "nextButton": "button[class^=btn]",
-        "skipLink": "getByText('Пропустити')"
+        "skipLink": "text=Пропустити"
       },
-      "validations": ["format (\"Це поле має бути дійсною електронною адресою\")"],
-      "screenshot": "artifacts/20-user-info-email.png"
+      "validations": [
+        "format (\"Це поле має бути дійсною електронною адресою\")",
+        "reached via direct URL navigation this run (not via a completed submission of the previous user-info-phone step, due to the oauth blocker documented there) - field/selectors/format-validation were verified live, but this step's own submit behaviour (PATCH to /api/v1/users/{id}) was not confirmed to complete successfully this run"
+      ],
+      "screenshot": "artifacts/18-user-info-email.png"
     },
     {
-      "order": 21,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/lesson-time-select",
+      "order": 20,
+      "url": "https://stage.allright.com/uk/app/sign-up/long/personalized/lesson-time-select",
       "type": "scheduling",
       "interaction": "schedule",
       "required": true,
       "selectors": {
-        "daySelector": "listitem (day paragraph text, e.g. getByText('Сьогодні'))",
-        "timeOfDaySelector": "button[data-mode] (accessible names: 'ранок' | 'день' | 'вечір')",
-        "timeSlotSelector": "button[data-mode] (accessible name: 'HH:MM')",
-        "timezoneSelector": "getByRole('button', { name: /UTC/ })",
-        "bookButton": "button[class^=btn] (accessible name: 'Забронювати урок')"
+        "daySelector": "role=listitem",
+        "timeOfDaySelector": "p:has-text(\"Коли вам зручно відвідати урок?\") + div button",
+        "timeSlotSelector": "p:has-text(\"Оберіть час уроку\") + div button",
+        "timezoneSelector": "text=UTC",
+        "bookButton": "role=button[name=\"Забронювати урок\"]"
       },
       "validations": [
-        "In this run a day/time-of-day/slot were pre-selected by default and the book button was already enabled without any interaction (differs from previous run where all three had to be explicitly chosen before the button enabled)"
+        "day/time-of-day/slot are pre-selected by default and the book button is already enabled without any interaction",
+        "page renders as a full marketing landing page (testimonials, stats, FAQ accordion) around the scheduling widget, with no 'N / 13' step counter shown",
+        "widget option buttons have no data-mode attribute - use the structural p:has-text(...) + div button pattern instead (re-verified live this run)",
+        "requires GET https://stage.allright.com/api/v1/users?filter[get-tutor-for-trial]=true to be mocked - unmocked it hangs the booking click indefinitely with no response (the GET https://stage.allright.com/api/v1/available-timeslots* call from the previous run's notes did NOT fire this run at all)",
+        "BOOKING ENDPOINT FINDING (confirmed again this run): clicking 'Забронювати урок' did not trigger a POST to any of the 5 hypothesized endpoints (lessons, tmp-lessons, trial-lessons, bookings, permanent-schedule) - none fired. Only the mocked GET get-tutor-for-trial call preceded it; the click then navigated client-side straight to /uk/app/request-gotten. Unlike the previous run, the PATCH /api/v1/users/{id} 'booking mechanism' theory from user-info-email also did not fire this run (that step was only reached via direct navigation, not a real submission) - so the actual persistence mechanism for the booking request remains unconfirmed by any observed network call."
       ],
-      "screenshot": "artifacts/21-lesson-time-select.png"
+      "screenshot": "artifacts/19-lesson-time-select.png"
     },
     {
-      "order": 22,
-      "url": "https://stage.allright.com/uk/app/sign-up/long/charlie/telegram-bot",
-      "type": "info",
-      "interaction": "acknowledgeThenContinue",
-      "required": true,
-      "selectors": {
-        "nextButton": "getByRole('button', { name: 'Далі' })",
-        "subscribeLink": "getByRole('link', { name: 'Підписатися' })"
-      },
-      "screenshot": "artifacts/22-telegram-bot.png"
+      "order": 21,
+      "url": "https://stage.allright.com/uk/app/request-gotten",
+      "type": "terminal",
+      "interaction": "none",
+      "required": false,
+      "screenshot": "artifacts/20-request-gotten.png"
     }
   ]
 }
