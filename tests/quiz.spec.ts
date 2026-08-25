@@ -4,52 +4,47 @@ import { QuizPage } from './page-objects/quizPage';
 const MAX_STEPS = 50; // запобіжник від зависання, якщо якийсь крок не розпізнається / не веде далі
 
 test('Positive flow. All steps have valid data', async ({ page }) => {
-  let userCreated = false;
-  let lessonBooked = false;
+  let userCreatedStatus: number | null = null;
+  let lessonBookedStatus: number | null = null;
 
-  await page.route('**/api/v1/users', async (route) => {
-    if (route.request().method() !== 'POST') return route.continue();
+  // Тест вважається пройденим, якщо отримую 200 по запитах на реєстрацію учасника
+  // І на запит бронювання пробнго уроку
+  page.on('response', (response) => {
+    if (response.request().method() !== 'POST') return;
 
-    userCreated = true;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ "included": [
-          {
-            "type": "user-meta",
-            "id": "822549" 
-          }
-        ],
-          "data": {
-              "type": "users",
-              "id": "853922"
-        }
-      }),
-    });
-  });
+    const path = new URL(response.url()).pathname;
 
-  await page.route('**/api/v1/lessons', async (route) => {
-    if (route.request().method() !== 'POST') return route.continue();
-
-    lessonBooked = true;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ "id": "822549" }),
-    });
+    if (path.endsWith('/api/v1/users')) {
+      userCreatedStatus = response.status();
+    }
+    if (path.endsWith('/api/v1/lessons')) {
+      lessonBookedStatus = response.status();
+    }
   });
 
   const quiz = new QuizPage(page);
-  await quiz.open();
+  console.log('Test user:', quiz.testUser);
 
-  let steps = 0;
-  while (!(await quiz.isQuizFinished())) {
-    await quiz.completeCurrentStep();
+  await test.step('Реєстрація: пройти квіз до кінця', async () => {
+    await quiz.open();
 
-    steps++;
-    expect(steps, 'Quiz didnt finish after max steps').toBeLessThan(MAX_STEPS);
+    let steps = 0;
+    while (!(await quiz.isQuizFinished())) {
+      await quiz.completeCurrentStep();
+
+      steps++;
+      expect(steps, 'Quiz didnt finish after max steps').toBeLessThan(MAX_STEPS);
+    }
+  });
+
+  // Якщо бронювання вже відбулось одним із кроків квізу — окрема сторінка не потрібна.
+  if (lessonBookedStatus === null) {
+    await test.step('Бронювання пробного уроку окремою сторінкою', async () => {
+      await quiz.openBooking();
+      lessonBookedStatus = await quiz.bookLesson();
+    });
   }
 
-  expect(userCreated, 'POST /api/v1/users should called (mock)').toBe(true);
-  expect(lessonBooked, 'POST /api/v1/lessons should called (mock)').toBe(true);
+  expect(userCreatedStatus, 'POST /api/v1/users should be called and return 200').toBe(200);
+  expect(lessonBookedStatus, 'POST /api/v1/lessons should be called and return 200').toBe(200);
 });
