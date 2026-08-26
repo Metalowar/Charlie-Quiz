@@ -25,9 +25,7 @@ function randomLetters(length: number): string {
   return letters;
 }
 
-// Кожен прогін має реєструвати НОВОГО користувача: якщо телефон уже є в базі,
-// бекенд поводиться інакше (інша воронка, інші доступні дії), і тест перевіряє
-// зовсім не той сценарій, який мав.
+// Кожен прогін має реєструвати НОВОГО користувача:
 export function createTestUser(): TestUser {
   const stamp = Date.now().toString(36);
 

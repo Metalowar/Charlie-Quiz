@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { BASE_URL } from './tests/config/routes';
 
 /**
  * Read environment variables from file.
@@ -27,8 +28,8 @@ export default defineConfig({
   timeout: 120_000,
   expect: { timeout: 10_000 },
   use: {
-    /* Base URL to use in actions like `await page.goto('')`. */
-    baseURL: 'https://stage.allright.com/uk/app/sign-up/long/charlie/age-range',
+    /* Тільки origin. Конкретні шляхи — у tests/config/routes.ts */
+    baseURL: BASE_URL,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',

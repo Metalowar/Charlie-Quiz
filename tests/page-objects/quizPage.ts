@@ -1,6 +1,9 @@
-import { Response, Locator, ElementHandle } from '@playwright/test';
+import { Page, Response, Locator, ElementHandle } from '@playwright/test';
 import { BasePage } from './basePage';
-import { createTestUser } from '../utils/testUser';
+import { PopupHandler } from './components/popupHandler';
+import { ROUTES, QUIZ_FINISH_ROUTES } from '../config/routes';
+import { API } from '../network/endpoints';
+import { TestUser } from '../utils/testUser';
 
 // Типи кроків квізу. Додавай нові варіанти по мірі того, як з'являються нові UI під АБ-тестами.
 export enum StepType {
@@ -11,11 +14,14 @@ export enum StepType {
   PhoneInput = 'phone-input',
   EmailInput = 'email-input',
   Booking = 'booking',
-  PopUp = 'pop-up',
   Unknown = 'unknown',
 }
 
 export class QuizPage extends BasePage {
+  // Ці два селектори потрібні і кроку квізу, і попапу, тому винесені в константи.
+  private static readonly OPTION_SELECTOR = 'button[data-mode]';
+  private static readonly NEXT_SELECTOR = 'button[class^=btn]';
+
   // Скільки чекати, поки клікнутий елемент зникне з DOM
   private static readonly DETACH_TIMEOUT = 5_000;
   // Скільки чекати, поки з'явиться тип кроку Unknown.
@@ -23,28 +29,36 @@ export class QuizPage extends BasePage {
   private static readonly STEP_DETECT_INTERVAL = 250;
   // Як часто перевіряти попап, поки чекаємо на сигнал завершення кроку.
   private static readonly POPUP_WATCH_INTERVAL = 250;
-  // Точка входу для бронювання, якщо воно не трапилось кроком квізу
-  private static readonly BOOKING_PATH = '/uk/app/dashboard';
+  // Запобіжник від зависання, якщо якийсь крок не розпізнається / не веде далі
+  private static readonly MAX_STEPS = 50;
 
-  // Генератор користувачів:
-  readonly testUser = createTestUser();
+  private readonly popups: PopupHandler;
 
   private currentStepIndex = 0;
   // Елемент, по якому клікнули останнім у межах поточного кроку для визначення, що його немає в DOM
   private lastClickedElement: ElementHandle<SVGElement | HTMLElement> | null = null;
 
+  constructor(page: Page) {
+    super(page);
+
+    this.popups = new PopupHandler(page, {
+      option: QuizPage.OPTION_SELECTOR,
+      next: QuizPage.NEXT_SELECTOR,
+    });
+  }
+
   // ---------- Локатори ----------
 
   get optionButtons() {
-    return this.locator('button[data-mode]');
+    return this.locator(QuizPage.OPTION_SELECTOR);
   }
 
   get nextButton() {
-    return this.locator('button[class^=btn]');
+    return this.locator(QuizPage.NEXT_SELECTOR);
   }
 
   get activeNextButton() {
-    return this.locator('button[class^=btn]:not([disabled])');
+    return this.locator(`${QuizPage.NEXT_SELECTOR}:not([disabled])`);
   }
 
   get textInput() {
@@ -87,18 +101,6 @@ export class QuizPage extends BasePage {
     return this.locator('p:has-text(\"Оберіть час уроку\") + div button'); // Змінити на більш універсальний
   }
 
-  get popupModal() {
-    return this.locator('dialog[class*="ui-modal"]:visible');
-  }
-
-  get popupClose() {
-    return this.locator('button[aria-label="Close"]');
-  }
-
-  get popupBooking() {
-    return this.locator('span[class^=btn]');
-  }
-
   // ---------- Визначення типу поточного кроку ----------
 
   async isSingleChoiceStep(index: number = 0): Promise<boolean> {
@@ -114,20 +116,20 @@ export class QuizPage extends BasePage {
   }
 
   async isInfoStep(): Promise<boolean> {
-    const hasOption = await this.optionButtons.nth(0).isHidden();
+    const noOption = await this.optionButtons.nth(0).isHidden();
     const hasNextButton = await this.nextButton.first().isVisible();
     const noHasInput = await this.textInput.isHidden();
     const noHasPhone = await this.telInput.isHidden();
     const noHasEmail = await this.emailInput.isHidden();
     const noHasDaySelector = await this.daySelector.first().isHidden();
-    return hasOption && hasNextButton && noHasInput && noHasPhone && noHasEmail && noHasDaySelector;
+    return noOption && hasNextButton && noHasInput && noHasPhone && noHasEmail && noHasDaySelector;
   }
 
   async isTextInputStep(): Promise<boolean> {
     const hasInput = await this.textInput.isVisible();
     const hasNextButton = await this.nextButton.first().isVisible();
-    const noEmailButton = await this.emailInput.isHidden();
-    return hasInput && hasNextButton && noEmailButton;
+    const noEmailInput = await this.emailInput.isHidden();
+    return hasInput && hasNextButton && noEmailInput;
   }
 
   async isPhoneInputStep(): Promise<boolean> {
@@ -150,10 +152,6 @@ export class QuizPage extends BasePage {
     const hasTypeButton = await this.langTypeButton.nth(0).isVisible();
     const hasBookButton = await this.nextButton.nth(0).isVisible();
     return hasDay && hasBookButton && (hasTime || hasTimeSelect || hasTypeButton);
-  }
-
-  async isPopup(index:number = 0): Promise<boolean> {
-    return await this.popupModal.nth(index).isVisible();
   }
 
   // Перевірка чи елемент, по якому щойно клікнули, точно зник з DOM
@@ -200,7 +198,7 @@ export class QuizPage extends BasePage {
     return this.page.waitForResponse((response) => this.isPingResponse(response));
   }
 
-  async open(path: string = '') {
+  async open(path: string = ROUTES.QUIZ_START) {
     await Promise.all([
       this.waitForPageLoaded(),
       this.page.goto(path),
@@ -225,7 +223,6 @@ export class QuizPage extends BasePage {
     const tracked = this.waitForStepTracked();
     const navigated = this.page.waitForURL((url) => url.pathname !== pathBefore);
 
-    // Проміс, що невиконаєтсья не буде вказувати причину падіння, тому reject обом.
     tracked.catch(() => {});
     navigated.catch(() => {});
 
@@ -251,14 +248,13 @@ export class QuizPage extends BasePage {
 
       if (settled) break;
 
-      await this.dismissPopupIfPresent();
+      await this.popups.dismissIfPresent();
     }
 
     return watched;
   }
 
   private async performTrackedAction(action: () => Promise<void>) {
-    // Обробка URL, щоб б не розолвилась зразу
     const pathBefore = new URL(this.page.url()).pathname;
 
     await Promise.all([
@@ -280,14 +276,31 @@ export class QuizPage extends BasePage {
   }
 
   async isQuizFinished(): Promise<boolean> {
-    return this.hasUrl('/request-gotten');
+    return QUIZ_FINISH_ROUTES.some((route) => this.hasUrl(route));
+  }
+
+  // Проходить кроки один за одним, поки не дійде до термінальної сторінки.
+  // Порядок і типи кроків заздалегідь невідомі — їх визначає А/Б-тест.
+  async completeQuiz(user: TestUser) {
+    let steps = 0;
+
+    while (!(await this.isQuizFinished())) {
+      if (steps >= QuizPage.MAX_STEPS) {
+        throw new Error(
+          `Квіз не завершився за ${QuizPage.MAX_STEPS} кроків. Поточний URL: ${this.page.url()}`
+        );
+      }
+
+      await this.completeCurrentStep(user);
+      steps++;
+    }
   }
 
   // ---------- Бронювання пробного уроку (окремою сторінкою) ----------
 
   // Сесія вже в куках контексту, тому просто переходимо на дашборд 
   async openBooking() {
-    await this.page.goto(QuizPage.BOOKING_PATH);
+    await this.page.goto(ROUTES.BOOKING);
     await this.page.waitForLoadState('load').catch(() => {});
     await this.waitForBookingForm();
   }
@@ -297,7 +310,7 @@ export class QuizPage extends BasePage {
     const deadline = Date.now() + QuizPage.STEP_DETECT_TIMEOUT;
 
     while (Date.now() < deadline) {
-      await this.dismissPopupIfPresent();
+      await this.popups.dismissIfPresent();
 
       if (await this.isBookingStep()) return;
 
@@ -311,7 +324,7 @@ export class QuizPage extends BasePage {
 
   private isLessonBookedResponse(response: Response): boolean {
     return (
-      new URL(response.url()).pathname.endsWith('/api/v1/lessons') &&
+      new URL(response.url()).pathname.endsWith(API.LESSONS) &&
       response.request().method() === 'POST'
     );
   }
@@ -366,39 +379,9 @@ export class QuizPage extends BasePage {
     await this.safeClick(this.nextButton.nth(index));
   }
 
-  async resolvePopup() {
-    const popupOption = this.popupModal.locator(this.optionButtons).first();
-    const popupNext = this.popupModal.locator(this.nextButton);
-    const popupClose = this.popupModal.locator(this.popupClose);
-    const popupBooking = this.popupModal.locator(this.popupBooking);
-
-    if (await popupOption.isVisible()) {
-      await this.page.waitForTimeout(500);
-      await popupOption.click();
-      await this.popupModal.waitFor({ state: 'hidden' })
-    } else if (await popupNext.isVisible()) {
-      await popupNext.click();
-    } else if (await popupClose.isVisible()) {
-      await popupClose.click();
-      await this.popupModal.waitFor({ state: 'hidden' })
-    } else if (await popupBooking.isVisible()) {
-      await popupBooking.click();
-      await this.popupModal.waitFor({ state: 'hidden' })
-    } else {
-      throw new Error('Popup з’явився, але невідомо як його закрити');
-    }
-  }
-
-  // Перевіряти й закривати попап перед КОЖНОЮ спробою визначити крок
-  async dismissPopupIfPresent() {
-    while (await this.isPopup()) {
-      await this.resolvePopup();
-    }
-  }
-
   // Перевіряє й закриває попап.
   private async safeClick(locator: Locator) {
-    await this.dismissPopupIfPresent();
+    await this.popups.dismissIfPresent();
 
     const handle = await locator.elementHandle();
 
@@ -407,7 +390,7 @@ export class QuizPage extends BasePage {
     await this.lastClickedElement?.dispose();
     this.lastClickedElement = handle;
 
-    await this.dismissPopupIfPresent();
+    await this.popups.dismissIfPresent();
   }
 
   // ---------- Пройти поточний крок незалежно від його типу ----------
@@ -420,7 +403,7 @@ export class QuizPage extends BasePage {
     const deadline = Date.now() + QuizPage.STEP_DETECT_TIMEOUT;
 
     while (true) {
-      await this.dismissPopupIfPresent();
+      await this.popups.dismissIfPresent();
 
       const type = await this.getCurrentStepType();
       if (type !== StepType.Unknown) return type;
@@ -431,7 +414,7 @@ export class QuizPage extends BasePage {
     }
   }
 
-  async completeCurrentStep() {
+  async completeCurrentStep(user: TestUser) {
     const type = await this.detectStepType();
 
     switch (type) {
@@ -440,13 +423,13 @@ export class QuizPage extends BasePage {
       case StepType.MultipleChoice:
         return this.performTrackedAction(() => this.completeMultipleChoiceStep());
       case StepType.TextInput:
-        return this.performTrackedAction(() => this.completeInputStep(this.testUser.name));
+        return this.performTrackedAction(() => this.completeInputStep(user.name));
       case StepType.Info:
         return this.performTrackedAction(() => this.completeInfoStep());
       case StepType.PhoneInput:
-        return this.performTrackedAction(() => this.completePhoneStep(this.testUser.phone));
+        return this.performTrackedAction(() => this.completePhoneStep(user.phone));
       case StepType.EmailInput:
-        return this.performTrackedAction(() => this.completeEmailStep(this.testUser.email));
+        return this.performTrackedAction(() => this.completeEmailStep(user.email));
       case StepType.Booking:
         return this.performTrackedAction(() => this.completeBookingStep());
       default:
