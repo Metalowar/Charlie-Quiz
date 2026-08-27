@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp",
+        "--caps=network,storage",
+        "--isolated",
+        "--output-dir=variant1/artifacts"
+      ]
+    }
+  }
+}

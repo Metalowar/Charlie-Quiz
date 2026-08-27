@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(.github/**)",
+      "Write(.github/**)"
+    ]
+  },
+  "enableAllProjectMcpServers": true
+}

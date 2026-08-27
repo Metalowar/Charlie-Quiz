@@ -6,5 +6,5 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 
-# quiz-structure-mapper run artifacts (screenshots, traces) - schema.json itself IS tracked
-/tests/quiz-structure/artifacts/
+# quiz-test run artifacts (скріншоти помилок) — result.md і users.md самі по собі трекаються
+/variant1/artifacts/
