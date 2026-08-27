@@ -20,7 +20,7 @@ npx playwright show-report
 npm run typecheck
 ```
 
-Стенд задається через `BASE_URL` (за замовчуванням `https://stage.allright.com`).
+За основу береться `BASE_URL` (за замовчуванням `https://stage.allright.com`).
 Шляхи всередині застосунку — у `tests/config/routes.ts`.
 
 ## Структура

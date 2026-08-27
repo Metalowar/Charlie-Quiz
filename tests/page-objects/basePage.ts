@@ -1,5 +1,8 @@
 import { Page, Locator } from '@playwright/test';
 
+// В даній реалізації можна було обійтись і без цієї сторінки
+// Залишив її для випадку, якщо даний квіз буде розширюватись або обросте додатковою логікою
+
 export class BasePage {
   constructor(protected readonly page: Page) {}
 

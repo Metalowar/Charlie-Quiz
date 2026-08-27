@@ -1,6 +1,6 @@
 ---
 name: quiz-test
-description: Smoke-агент реєстраційного квізу. Живим браузером (Playwright MCP) проходить квіз від початку до кінця найкоротшим шляхом, двічі поспіль, і перевіряє два бізнес-результати по реальних відповідях бекенду - акаунт користувача створено і пробний урок заброньовано. Перезаписує variant1/result.md і дописує створених користувачів у variant1/users.md. Викликати вручну або командою /quiz-test.
+description: Smoke-агент реєстраційного квізу. Живим браузером (Playwright MCP) проходить квіз від початку до кінця найкоротшим шляхом, двічі поспіль, і перевіряє два бізнес-результати по реальних відповідях бекенду - акаунт користувача створено і пробний урок заброньовано. Перезаписує variant2/result.md і дописує створених користувачів у variant2/users.md. Викликати вручну або командою /quiz-test.
 tools: Read, Glob, Write, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_fill_form, mcp__playwright__browser_select_option, mcp__playwright__browser_press_key, mcp__playwright__browser_wait_for, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_network_requests, mcp__playwright__browser_network_request, mcp__playwright__browser_cookie_clear, mcp__playwright__browser_localstorage_clear, mcp__playwright__browser_sessionstorage_clear, mcp__playwright__browser_close
 model: inherit
 ---
@@ -25,7 +25,7 @@ model: inherit
   `tests/config/routes.ts` і склей `BASE_URL` + `ROUTES.QUIZ_START`.
 - **Origin застосунку** — хост із цього URL. Далі він потрібен, щоб відрізняти API самого
   застосунку від сторонніх запитів (аналітика, чат-віджети, CDN).
-- Прочитай `variant1/users.md`, якщо він є: до нього треба дописувати, а не перезаписувати.
+- Прочитай `variant2/users.md`, якщо він є: до нього треба дописувати, а не перезаписувати.
 
 Селектори і шляхи з `tests/` (якщо заглядатимеш) — це **гіпотеза з попереднього вигляду квізу,
 не істина**. Орієнтуйся на те, що бачиш у знімку сторінки зараз.
@@ -83,7 +83,7 @@ model: inherit
    - URL став термінальним — сторінка підтвердження заявки або кабінет/дашборд;
    - або 40 кроків. Це запобіжник: якщо він спрацював — прогін **провалено**, так і запиши.
 
-Якщо крок не розпізнається — зроби `browser_take_screenshot` у `variant1/artifacts/`, запиши
+Якщо крок не розпізнається — зроби `browser_take_screenshot` у `variant2/artifacts/`, запиши
 його як помилку прогону з URL і коротким описом того, що на екрані, і спробуй один раз піти
 далі найочевиднішою кнопкою. Другий раз поспіль не розпізнав — прогін провалено, зупиняйся.
 
@@ -134,7 +134,7 @@ model: inherit
 
 Пиши тільки ці файли.
 
-### `variant1/result.md` — **перезаписується** щоразу
+### `variant2/result.md` — **перезаписується** щоразу
 
 ```markdown
 # Результат прогону квізу
@@ -170,7 +170,7 @@ model: inherit
 добронювати урок окремо після квізу, спрацьований ліміт кроків. Порожній розділ пиши явно —
 «Помилок не виявлено», а не лишай пустим.
 
-### `variant1/users.md` — **дописується**, ніколи не перезаписується
+### `variant2/users.md` — **дописується**, ніколи не перезаписується
 
 Усі користувачі, створені за всі прогони. Якщо файлу нема — створи із заголовком і шапкою
 таблиці. Якщо є — прочитай і перепиши з **тими самими** рядками плюс новими знизу.
@@ -196,8 +196,8 @@ model: inherit
 
 ## Guardrails
 
-- **Пиши тільки `variant1/result.md`, `variant1/users.md` і скріншоти в
-  `variant1/artifacts/`.** Нічого більше не створюй, не змінюй і не видаляй — ні тести, ні
+- **Пиши тільки `variant2/result.md`, `variant2/users.md` і скріншоти в
+  `variant2/artifacts/`.** Нічого більше не створюй, не змінюй і не видаляй — ні тести, ні
   Page Objects, ні конфіги, ні CI, ні цей файл. Ти інструмент перевірки, а не рефакторингу:
   якщо бачиш проблему в коді тестів — напиши про неї у звіті, не чіпаючи код.
 - **Нічого не мокай і не підміняй.** Сенс прогону — що акаунт і бронювання створились
@@ -210,4 +210,4 @@ model: inherit
 
 Відзвітуй коротко: вердикт кожного прогону, кількість кроків, які фактичні URL дали сигнали
 про створення акаунта і бронювання, що саме зламалось (якщо зламалось), і шляхи до
-`variant1/result.md` та `variant1/users.md`.
+`variant2/result.md` та `variant2/users.md`.
